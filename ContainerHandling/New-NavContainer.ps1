@@ -279,7 +279,7 @@ $telemetryScope = InitTelemetryScope `
                     -includeParameters @("containerName","artifactUrl","isolation","imageName","multitenant","filesOnly")
 try {
 
-    $defaultNewContainerParameters = (Get-ContainerHelperConfig).defaultNewContainerParameters
+    $defaultNewContainerParameters = $bcContainerHelperConfig.defaultNewContainerParameters
     if ($defaultNewContainerParameters -is [HashTable]) {
         $defaultNewContainerParameters.GetEnumerator() | ForEach-Object {
             if (!($PSBoundParameters.ContainsKey($_.Name))) {
@@ -472,7 +472,7 @@ try {
 
     Write-Host "Host is $($os.Caption) - $hostOs"
 
-    $dockerService = (Get-Service docker -ErrorAction Ignore)
+    $dockerService = (Get-Process "dockerd" -ErrorAction Ignore)
     if (!($dockerService)) {
         throw "Docker Service not found. Docker is not started, not installed or not running Windows Containers."
     }
@@ -672,7 +672,7 @@ try {
     $navVersion = $dvdVersion
     $bcStyle = "onprem"
 
-    $downloadsPath = (Get-ContainerHelperConfig).bcartifactsCacheFolder
+    $downloadsPath = $bcContainerHelperConfig.bcartifactsCacheFolder
     if (!(Test-Path $downloadsPath)) {
         New-Item $downloadsPath -ItemType Directory | Out-Null
     }
@@ -1269,8 +1269,19 @@ try {
         throw "EnableSymbolLoading is no longer needed in Dynamics 365 Business Central 2019 wave 2 release (1910 / 15.x)"
     }
 
-    $myFolder = Join-Path $containerFolder "my"
-    New-Item -Path $myFolder -ItemType Directory -ErrorAction Ignore | Out-Null
+    if ($bcContainerHelperConfig.UseVolumeForMyFolder) {
+        $myVolumeName = "$containerName-my"
+        if ($allVolumes | Where-Object { $_ -like "*|$myVolumeName" }) {
+            throw "Fatal error, volume $myVolumeName already exists"
+        }
+        docker volume create $myVolumeName
+        $myFolder = ((docker volume inspect $myVolumeName) | ConvertFrom-Json).MountPoint
+        $allVolumes += "$myfolder|$myVolumeName"
+    }
+    else {
+        $myFolder = Join-Path $containerFolder "my"
+        New-Item -Path $myFolder -ItemType Directory -ErrorAction Ignore | Out-Null
+    }
 
     if ($useTraefik) {
         Write-Host "Adding special CheckHealth.ps1 to enable Traefik support"
@@ -1400,7 +1411,6 @@ try {
         $parameters += @( "--env licenseFile=""$containerLicenseFile""" )
     }
 
-
     $parameters += @(
                     "--name $containerName",
                     "--hostname $containerName",
@@ -1411,7 +1421,7 @@ try {
                     "--env databaseServer=""$databaseServer""",
                     "--env databaseInstance=""$databaseInstance""",
                     (getVolumeMountParameter -volumes $allVolumes -hostPath $hostHelperFolder -containerPath $containerHelperFolder),
-                    "--volume ""$($myFolder):C:\Run\my""",
+                    (getVolumeMountParameter -volumes $allVolumes -hostPath $myFolder -containerPath "C:\Run\my"),
                     "--isolation $isolation",
                     "--restart $restart"
                    )
@@ -1779,6 +1789,8 @@ if (-not `$restartingInstance) {
         
         $parameters += $additionalParameters
     
+        # $parameters | Out-host
+
         if (!(DockerDo -accept_eula -accept_outdated:$accept_outdated -detach -imageName $imageName -parameters $parameters)) {
             return
         }

@@ -40,7 +40,7 @@ try {
     }
 
     if ($caches.Contains('all') -or $caches.Contains('bcartifacts') -or $caches.Contains('sandboxartifacts')) {
-        $bcartifactsCacheFolder = (Get-ContainerHelperConfig).bcartifactsCacheFolder
+        $bcartifactsCacheFolder = $bcartifactsCacheFolder
         $subfolder = "*"
         if (!($caches.Contains('all') -or $caches.Contains('bcartifacts'))) {
             $subfolder = "sandbox"
@@ -123,7 +123,7 @@ try {
                     "artifactUrl=https://bcprivate.azureedge.net/",
                     "artifactUrl=https://bcpublicpreview.azureedge.net/" | % {
                         if ($artifactUrl -like "$($_)*") {
-                            $cacheFolder = Join-Path $bcContainerHelperConfig.bcartifactsCacheFolder $artifactUrl.SubString($_.Length)
+                            $cacheFolder = Join-Path $bcartifactsCacheFolder $artifactUrl.SubString($_.Length)
                             if (-not (Test-Path $cacheFolder)) {
                                 Write-Host "$imageName was built on artifacts which was removed from the cache, removing image"
                                 if (-not (DockerDo -command rmi -parameters @("--force") -imageName $imageID -ErrorAction SilentlyContinue)) {
@@ -147,8 +147,10 @@ try {
                 }
             }
         }
-        Write-Host "Running Docker image prune"
-        docker image prune -f > $null
+        if ($keepDays -eq 0) {
+            Write-Host "Running Docker image prune"
+            docker image prune -f > $null
+        }
         Write-Host "Completed"
     }
 }
